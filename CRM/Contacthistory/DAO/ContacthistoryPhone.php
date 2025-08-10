@@ -1,4 +1,5 @@
 <?php
+use CRM_Contacthistory_ExtensionUtil as E;
 
 /**
  * @package CRM
@@ -40,6 +41,15 @@ class CRM_Contacthistory_DAO_ContacthistoryPhone extends CRM_Core_DAO {
   public $id;
 
   /**
+   * Original phone ID from civicrm_phone
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $original_id;
+
+  /**
    * FK to Contact ID
    *
    * @var int|string|null
@@ -47,105 +57,6 @@ class CRM_Contacthistory_DAO_ContacthistoryPhone extends CRM_Core_DAO {
    *   Note that values will be retrieved from the database as a string.
    */
   public $contact_id;
-
-  /**
-   * Which Location does this phone belong to.
-   *
-   * @var int|string|null
-   *   (SQL type: int unsigned)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $location_type_id;
-
-  /**
-   * Is this the primary phone for this contact and location.
-   *
-   * @var bool|string
-   *   (SQL type: tinyint)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $is_primary;
-
-  /**
-   * Is this the billing phone for this contact and location.
-   *
-   * @var bool|string
-   *   (SQL type: tinyint)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $is_billing;
-
-  /**
-   * Which Mobile Provider does this phone belong to.
-   *
-   * @var int|string|null
-   *   (SQL type: int unsigned)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $mobile_provider_id;
-
-  /**
-   * Complete phone number.
-   *
-   * @var string|null
-   *   (SQL type: varchar(32))
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $phone;
-
-  /**
-   * Optional extension for a phone number.
-   *
-   * @var string|null
-   *   (SQL type: varchar(16))
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $phone_ext;
-
-  /**
-   * Phone Phone number stripped of all whitespace, letters, and punctuation.
-   *
-   * @var string|null
-   *   (SQL type: varchar(32))
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $phone_numeric;
-
-  /**
-   * Which type of phone does this number belongs.
-   *
-   * @var int|string|null
-   *   (SQL type: int unsigned)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $phone_type_id;
-
-  /**
-   * When this history record was created
-   *
-   * @var string
-   *   (SQL type: timestamp)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $start_date;
-
-  /**
-   * When this history record was last modified
-   *
-   * @var string
-   *   (SQL type: timestamp)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $modified_date;
-
-  /**
-   * When this phone was deleted/replaced
-   *
-   * @var string|null
-   *   (SQL type: timestamp)
-   *   Note that values will be retrieved from the database as a string.
-   */
-  public $end_date;
 
   /**
    * Class constructor.
@@ -196,6 +107,27 @@ class CRM_Contacthistory_DAO_ContacthistoryPhone extends CRM_Core_DAO {
           'readonly' => TRUE,
           'add' => NULL,
         ],
+        'original_id' => [
+          'name' => 'original_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Original Phone ID'),
+          'description' => E::ts('Original phone ID from civicrm_phone'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => TRUE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.original_id',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Number',
+          ],
+          'add' => NULL,
+        ],
         'contact_id' => [
           'name' => 'contact_id',
           'type' => CRM_Utils_Type::T_INT,
@@ -215,94 +147,6 @@ class CRM_Contacthistory_DAO_ContacthistoryPhone extends CRM_Core_DAO {
           'html' => [
             'type' => 'EntityRef',
             'label' => E::ts('Contact'),
-          ],
-          'add' => NULL,
-        ],
-        'location_type_id' => [
-          'name' => 'location_type_id',
-          'type' => CRM_Utils_Type::T_INT,
-          'title' => E::ts('Location Type ID'),
-          'description' => E::ts('Which Location does this phone belong to.'),
-          'usage' => [
-            'import' => FALSE,
-            'export' => FALSE,
-            'duplicate_matching' => FALSE,
-            'token' => FALSE,
-          ],
-          'where' => 'civicrm_contacthistory_phone.location_type_id',
-          'table_name' => 'civicrm_contacthistory_phone',
-          'entity' => 'ContacthistoryPhone',
-          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
-          'localizable' => 0,
-          'html' => [
-            'type' => 'Select',
-            'label' => E::ts('Location Type'),
-          ],
-          'add' => NULL,
-        ],
-        'phone' => [
-          'name' => 'phone',
-          'type' => CRM_Utils_Type::T_STRING,
-          'title' => E::ts('Phone'),
-          'description' => E::ts('Complete phone number.'),
-          'maxlength' => 32,
-          'size' => CRM_Utils_Type::MEDIUM,
-          'usage' => [
-            'import' => TRUE,
-            'export' => TRUE,
-            'duplicate_matching' => TRUE,
-            'token' => FALSE,
-          ],
-          'where' => 'civicrm_contacthistory_phone.phone',
-          'table_name' => 'civicrm_contacthistory_phone',
-          'entity' => 'ContacthistoryPhone',
-          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
-          'localizable' => 0,
-          'html' => [
-            'type' => 'Text',
-          ],
-          'add' => NULL,
-        ],
-        'start_date' => [
-          'name' => 'start_date',
-          'type' => CRM_Utils_Type::T_TIMESTAMP,
-          'title' => E::ts('Start Date'),
-          'description' => E::ts('When this history record was created'),
-          'required' => TRUE,
-          'usage' => [
-            'import' => FALSE,
-            'export' => TRUE,
-            'duplicate_matching' => FALSE,
-            'token' => FALSE,
-          ],
-          'where' => 'civicrm_contacthistory_phone.start_date',
-          'table_name' => 'civicrm_contacthistory_phone',
-          'entity' => 'ContacthistoryPhone',
-          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
-          'localizable' => 0,
-          'html' => [
-            'type' => 'Select Date',
-          ],
-          'add' => NULL,
-        ],
-        'end_date' => [
-          'name' => 'end_date',
-          'type' => CRM_Utils_Type::T_TIMESTAMP,
-          'title' => E::ts('End Date'),
-          'description' => E::ts('When this phone was deleted/replaced'),
-          'usage' => [
-            'import' => FALSE,
-            'export' => TRUE,
-            'duplicate_matching' => FALSE,
-            'token' => FALSE,
-          ],
-          'where' => 'civicrm_contacthistory_phone.end_date',
-          'table_name' => 'civicrm_contacthistory_phone',
-          'entity' => 'ContacthistoryPhone',
-          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
-          'localizable' => 0,
-          'html' => [
-            'type' => 'Select Date',
           ],
           'add' => NULL,
         ],

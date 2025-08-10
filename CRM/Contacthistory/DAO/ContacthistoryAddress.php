@@ -1,4 +1,5 @@
 <?php
+use CRM_Contacthistory_ExtensionUtil as E;
 
 /**
  * @package CRM
@@ -38,6 +39,15 @@ class CRM_Contacthistory_DAO_ContacthistoryAddress extends CRM_Core_DAO {
    *   Note that values will be retrieved from the database as a string.
    */
   public $id;
+
+  /**
+   * Original address ID from civicrm_address
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $original_id;
 
   /**
    * FK to Contact ID
@@ -95,6 +105,27 @@ class CRM_Contacthistory_DAO_ContacthistoryAddress extends CRM_Core_DAO {
             'type' => 'Number',
           ],
           'readonly' => TRUE,
+          'add' => NULL,
+        ],
+        'original_id' => [
+          'name' => 'original_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Original Address ID'),
+          'description' => E::ts('Original address ID from civicrm_address'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => TRUE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_address.original_id',
+          'table_name' => 'civicrm_contacthistory_address',
+          'entity' => 'ContacthistoryAddress',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryAddress',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Number',
+          ],
           'add' => NULL,
         ],
         'contact_id' => [
