@@ -37,3 +37,4 @@ SELECT
   contact_id, location_type_id, is_primary, is_billing,
   mobile_provider_id, phone, phone_ext, phone_numeric, phone_type_id
 FROM civicrm_phone;
+

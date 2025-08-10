@@ -90,3 +90,4 @@ CREATE TABLE IF NOT EXISTS `civicrm_contacthistory_phone` (
   KEY `index_phone_numeric` (`phone_numeric`),
   KEY `index_phone_type_id` (`phone_type_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+

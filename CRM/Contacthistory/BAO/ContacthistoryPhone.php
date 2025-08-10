@@ -61,3 +61,4 @@ class CRM_Contacthistory_BAO_ContacthistoryPhone extends CRM_Contacthistory_DAO_
   }
 
 }
+

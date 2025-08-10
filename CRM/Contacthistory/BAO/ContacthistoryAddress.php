@@ -60,3 +60,4 @@ class CRM_Contacthistory_BAO_ContacthistoryAddress extends CRM_Contacthistory_DA
   }
 
 }
+

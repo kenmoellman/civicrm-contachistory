@@ -10,7 +10,7 @@
   </maintainer>
   <urls>
     <url desc="Main Extension Page">https://github.com/kenmoellman/civicrm-contacthistory</url>
-    <url desc="Documentation">https://github.com/kenmoellman/civicrm-contacthistory/README.md</url>
+    <url desc="Documentation">https://github.com/kenmoellman/civicrm-contacthistory/blob/main/README.md</url>
     <url desc="Support">https://github.com/kenmoellman/civicrm-contacthistory/issues</url>
   </urls>
   <releaseDate>2025-09-01</releaseDate>
@@ -30,3 +30,4 @@
     <angularModule>crmContacthistory</angularModule>
   </civix>
 </extension>
+

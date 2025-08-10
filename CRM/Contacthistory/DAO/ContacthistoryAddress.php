@@ -192,3 +192,4 @@ class CRM_Contacthistory_DAO_ContacthistoryAddress extends CRM_Core_DAO {
   }
 
 }
+

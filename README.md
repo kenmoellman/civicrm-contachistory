@@ -71,6 +71,26 @@ Each table includes:
 - `modified_date`: When the record was last modified  
 - `end_date`: When the record was deleted/replaced
 
+## Technical Notes
+
+- Database triggers are created using PHP code in the Upgrader class to avoid CiviCRM SQL file parsing issues with DELIMITER statements
+- History tracking is implemented at the database level for reliability and performance
+- The extension properly handles enable/disable cycles and clean uninstallation
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Triggers not working**: Ensure your database user has CREATE TRIGGER privileges
+2. **Missing history tab**: Clear CiviCRM caches and check permissions
+3. **Edit/delete buttons not working**: Verify "Manage Contact History" permission is assigned
+
+### Debugging
+
+- Check CiviCRM logs for SQL errors during installation
+- Verify triggers exist using `SHOW TRIGGERS` in MySQL
+- Confirm history tables contain expected data
+
 ## Support
 
 Report issues and contribute at: https://github.com/kenmoellman/civicrm-contacthistory

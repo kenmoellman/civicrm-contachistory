@@ -58,3 +58,4 @@ class CRM_Contacthistory_BAO_ContacthistoryEmail extends CRM_Contacthistory_DAO_
   }
 
 }
+

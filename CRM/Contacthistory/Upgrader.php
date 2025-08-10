@@ -280,3 +280,4 @@ class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
   }
 
 }
+

@@ -186,3 +186,4 @@ CRM.$(function($) {
 });
 </script>
 {/literal}
+

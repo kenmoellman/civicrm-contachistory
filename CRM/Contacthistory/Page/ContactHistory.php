@@ -30,3 +30,4 @@ class CRM_Contacthistory_Page_ContactHistory extends CRM_Core_Page {
   }
 
 }
+

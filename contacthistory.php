@@ -103,3 +103,4 @@ function contacthistory_civicrm_permission(&$permissions) {
     E::ts('Edit and delete contact history records'),
   ];
 }
+

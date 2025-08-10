@@ -129,3 +129,4 @@ class CRM_Contacthistory_Form_Edit extends CRM_Core_Form {
   }
 
 }
+

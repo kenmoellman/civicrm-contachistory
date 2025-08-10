@@ -14,3 +14,4 @@ class ContacthistoryAddress extends Generic\DAOEntity {
   use Generic\Traits\ManagedEntity;
 
 }
+
