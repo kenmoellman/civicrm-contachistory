@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <extension key="com.moellman.addresshistory" type="module">
   <file>contacthistory</file>
-  <n>Contact History</n>
+  <name>Contact History</name>
   <description>Track and display historical changes to contact addresses, emails, and phone numbers using database triggers.</description>
   <license>AGPL-3.0</license>
   <maintainer>
@@ -22,7 +22,14 @@
   <comments>This extension creates history tables for contact addresses, emails, and phone numbers, and provides a dedicated Contact History tab for viewing and managing historical data.</comments>
   <requirements>
     <civi>6.0</civi>
-    <php>8.2</php>
+    <php>
+      <min>8.2</min>
+      <max>8.4</max>
+    </php>
+    <smarty>
+      <min>2.0</min>
+      <max>5.0</max>
+    </smarty>
   </requirements>
   <civix>
     <namespace>CRM/Contacthistory</namespace>

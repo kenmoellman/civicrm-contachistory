@@ -59,7 +59,7 @@ class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
    *
    * @param string $relativePath
    */
-  private function executeCustomDataFile($relativePath) {
+  public function executeCustomDataFile($relativePath) {
     $basePath = dirname(__FILE__) . '/../..';
     $sql = file_get_contents($basePath . DIRECTORY_SEPARATOR . $relativePath);
     if ($sql) {
