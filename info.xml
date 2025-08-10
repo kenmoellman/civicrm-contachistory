@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <extension key="com.moellman.addresshistory" type="module">
   <file>contacthistory</file>
-  <name>Contact History</name>
+  <n>Contact History</n>
   <description>Track and display historical changes to contact addresses, emails, and phone numbers using database triggers.</description>
   <license>AGPL-3.0</license>
   <maintainer>

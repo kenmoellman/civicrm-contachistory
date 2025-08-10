@@ -27,7 +27,7 @@ class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
    * Install the extension.
    */
   public function install(): void {
-    $this->executeSqlFile('sql/install.sql');
+    $this->executeCustomDataFile('sql/install.sql');
   }
 
   /**
@@ -35,14 +35,14 @@ class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   public function uninstall(): void {
     $this->dropTriggers();
-    $this->executeSqlFile('sql/uninstall.sql');
+    $this->executeCustomDataFile('sql/uninstall.sql');
   }
 
   /**
    * Enable the extension.
    */
   public function enable(): void {
-    $this->executeSqlFile('sql/enable.sql');
+    $this->executeCustomDataFile('sql/enable.sql');
     $this->createTriggers();
   }
 
@@ -51,7 +51,26 @@ class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   public function disable(): void {
     $this->dropTriggers();
-    $this->executeSqlFile('sql/disable.sql');
+    // No SQL file needed for disable
+  }
+
+  /**
+   * Execute a custom SQL file.
+   *
+   * @param string $relativePath
+   */
+  private function executeCustomDataFile($relativePath) {
+    $basePath = dirname(__FILE__) . '/../..';
+    $sql = file_get_contents($basePath . DIRECTORY_SEPARATOR . $relativePath);
+    if ($sql) {
+      $statements = explode(';', $sql);
+      foreach ($statements as $statement) {
+        $statement = trim($statement);
+        if (!empty($statement)) {
+          CRM_Core_DAO::executeQuery($statement);
+        }
+      }
+    }
   }
 
   /**

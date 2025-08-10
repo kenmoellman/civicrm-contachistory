@@ -4,4 +4,3 @@
 DROP TABLE IF EXISTS civicrm_contacthistory_address;
 DROP TABLE IF EXISTS civicrm_contacthistory_email;
 DROP TABLE IF EXISTS civicrm_contacthistory_phone;
-

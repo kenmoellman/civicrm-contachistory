@@ -198,3 +198,4 @@ function _contacthistory_civix_civicrm_entityTypes(&$entityTypes) {
     ],
   ]);
 }
+
