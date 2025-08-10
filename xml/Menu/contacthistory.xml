@@ -6,6 +6,18 @@
     <title>Contact History</title>
     <access_arguments>access CiviCRM</access_arguments>
   </item>
+  <item>
+    <path>civicrm/contacthistory/edit</path>
+    <page_callback>CRM_Contacthistory_Form_Edit</page_callback>
+    <title>Edit Contact History</title>
+    <access_arguments>manage contact history</access_arguments>
+  </item>
+  <item>
+    <path>civicrm/contacthistory/delete</path>
+    <page_callback>CRM_Contacthistory_Form_Delete</page_callback>
+    <title>Delete Contact History</title>
+    <access_arguments>manage contact history</access_arguments>
+  </item>
 </menu>
 
 /**
