@@ -1,0 +1,2708 @@
+<?xml version="1.0"?>
+<extension key="com.moellman.addresshistory" type="module">
+  <file>contacthistory</file>
+  <name>Contact History</name>
+  <description>Track and display historical changes to contact addresses, emails, and phone numbers using database triggers.</description>
+  <license>AGPL-3.0</license>
+  <maintainer>
+    <author>Ken Moellman</author>
+    <email>ken@example.com</email>
+  </maintainer>
+  <urls>
+    <url desc="Main Extension Page">https://github.com/kenmoellman/civicrm-contacthistory</url>
+    <url desc="Documentation">https://github.com/kenmoellman/civicrm-contacthistory/blob/main/README.md</url>
+    <url desc="Support">https://github.com/kenmoellman/civicrm-contacthistory/issues</url>
+  </urls>
+  <releaseDate>2025-09-01</releaseDate>
+  <version>0.9.0</version>
+  <develStage>beta</develStage>
+  <compatibility>
+    <ver>6.0</ver>
+  </compatibility>
+  <comments>This extension creates history tables for contact addresses, emails, and phone numbers, and provides a dedicated Contact History tab for viewing and managing historical data.</comments>
+  <requirements>
+    <civi>6.0</civi>
+    <php>8.2</php>
+  </requirements>
+  <civix>
+    <namespace>CRM/Contacthistory</namespace>
+    <format>24.02.0</format>
+    <angularModule>crmContacthistory</angularModule>
+  </civix>
+</extension>
+
+---FILE: contacthistory.php---
+<?php
+
+require_once 'contacthistory.civix.php';
+// phpcs:disable
+use CRM_Contacthistory_ExtensionUtil as E;
+// phpcs:enable
+
+/**
+ * Implements hook_civicrm_config().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_config/
+ */
+function contacthistory_civicrm_config(&$config): void {
+  _contacthistory_civix_civicrm_config($config);
+}
+
+/**
+ * Implements hook_civicrm_install().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_install
+ */
+function contacthistory_civicrm_install(): void {
+  _contacthistory_civix_civicrm_install();
+}
+
+/**
+ * Implements hook_civicrm_enable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_enable
+ */
+function contacthistory_civicrm_enable(): void {
+  _contacthistory_civix_civicrm_enable();
+}
+
+/**
+ * Implements hook_civicrm_disable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_disable
+ */
+function contacthistory_civicrm_disable(): void {
+  _contacthistory_civix_civicrm_disable();
+}
+
+/**
+ * Implements hook_civicrm_uninstall().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_uninstall
+ */
+function contacthistory_civicrm_uninstall(): void {
+  _contacthistory_civix_civicrm_uninstall();
+}
+
+/**
+ * Implements hook_civicrm_upgrade().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_upgrade
+ */
+function contacthistory_civicrm_upgrade($op, CRM_Queue_Queue $queue = NULL) {
+  return _contacthistory_civix_civicrm_upgrade($op, $queue);
+}
+
+/**
+ * Implements hook_civicrm_entityTypes().
+ *
+ * Declare entity types provided by this module.
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_entityTypes
+ */
+function contacthistory_civicrm_entityTypes(&$entityTypes): void {
+  _contacthistory_civix_civicrm_entityTypes($entityTypes);
+}
+
+/**
+ * Implements hook_civicrm_tabset().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_tabset
+ */
+function contacthistory_civicrm_tabset($tabsetName, &$tabs, $context) {
+  if ($tabsetName === 'civicrm/contact/view' && !empty($context['contact_id'])) {
+    $tabs[] = [
+      'id' => 'contacthistory',
+      'url' => CRM_Utils_System::url('civicrm/contact/view/contacthistory', [
+        'cid' => $context['contact_id'],
+        'snippet' => 4,
+      ]),
+      'title' => E::ts('Contact History'),
+      'weight' => 300,
+      'count' => CRM_Contacthistory_BAO_ContacthistoryAddress::getHistoryCount($context['contact_id']) +
+                 CRM_Contacthistory_BAO_ContacthistoryEmail::getHistoryCount($context['contact_id']) +
+                 CRM_Contacthistory_BAO_ContacthistoryPhone::getHistoryCount($context['contact_id']),
+    ];
+  }
+}
+
+/**
+ * Implements hook_civicrm_permission().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_permission
+ */
+function contacthistory_civicrm_permission(&$permissions) {
+  $permissions['manage contact history'] = [
+    E::ts('CiviCRM: Manage Contact History'),
+    E::ts('Edit and delete contact history records'),
+  ];
+}
+
+---FILE: CRM/Contacthistory/Upgrader.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * Collection of upgrade steps.
+ */
+class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
+
+  /**
+   * @var CRM_Contacthistory_Upgrader
+   */
+  private static $_instance = NULL;
+
+  /**
+   * Get singleton instance.
+   *
+   * @return CRM_Contacthistory_Upgrader
+   */
+  public static function instance() {
+    if (!self::$_instance) {
+      self::$_instance = new self();
+    }
+    return self::$_instance;
+  }
+
+  /**
+   * Install the extension.
+   */
+  public function install(): void {
+    $this->executeSqlFile('sql/install.sql');
+  }
+
+  /**
+   * Uninstall the extension.
+   */
+  public function uninstall(): void {
+    $this->dropTriggers();
+    $this->executeSqlFile('sql/uninstall.sql');
+  }
+
+  /**
+   * Enable the extension.
+   */
+  public function enable(): void {
+    $this->executeSqlFile('sql/enable.sql');
+    $this->createTriggers();
+  }
+
+  /**
+   * Disable the extension.
+   */
+  public function disable(): void {
+    $this->dropTriggers();
+    $this->executeSqlFile('sql/disable.sql');
+  }
+
+  /**
+   * Create database triggers for history tracking.
+   */
+  private function createTriggers(): void {
+    // Drop existing triggers first
+    $this->dropTriggers();
+
+    // Address triggers
+    $this->createAddressTriggers();
+    
+    // Email triggers
+    $this->createEmailTriggers();
+    
+    // Phone triggers
+    $this->createPhoneTriggers();
+  }
+
+  /**
+   * Drop database triggers.
+   */
+  private function dropTriggers(): void {
+    $triggers = [
+      'tr_address_insert_history',
+      'tr_address_update_history', 
+      'tr_address_delete_history',
+      'tr_email_insert_history',
+      'tr_email_update_history',
+      'tr_email_delete_history',
+      'tr_phone_insert_history',
+      'tr_phone_update_history',
+      'tr_phone_delete_history'
+    ];
+
+    foreach ($triggers as $trigger) {
+      CRM_Core_DAO::executeQuery("DROP TRIGGER IF EXISTS {$trigger}");
+    }
+  }
+
+  /**
+   * Create address history triggers.
+   */
+  private function createAddressTriggers(): void {
+    // Insert trigger
+    $sql = "
+      CREATE TRIGGER tr_address_insert_history
+      AFTER INSERT ON civicrm_address
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO civicrm_contacthistory_address (
+          contact_id, location_type_id, is_primary, is_billing, street_address,
+          street_number, street_number_suffix, street_number_predirectional,
+          street_name, street_type, street_number_postdirectional, street_unit,
+          supplemental_address_1, supplemental_address_2, supplemental_address_3,
+          city, county_id, state_province_id, postal_code_suffix, postal_code,
+          usps_adr_dp, country_id, geo_code_1, geo_code_2, manual_geo_code,
+          timezone, name, master_id
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.is_primary, NEW.is_billing, NEW.street_address,
+          NEW.street_number, NEW.street_number_suffix, NEW.street_number_predirectional,
+          NEW.street_name, NEW.street_type, NEW.street_number_postdirectional, NEW.street_unit,
+          NEW.supplemental_address_1, NEW.supplemental_address_2, NEW.supplemental_address_3,
+          NEW.city, NEW.county_id, NEW.state_province_id, NEW.postal_code_suffix, NEW.postal_code,
+          NEW.usps_adr_dp, NEW.country_id, NEW.geo_code_1, NEW.geo_code_2, NEW.manual_geo_code,
+          NEW.timezone, NEW.name, NEW.master_id
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Update trigger
+    $sql = "
+      CREATE TRIGGER tr_address_update_history
+      AFTER UPDATE ON civicrm_address
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_address 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+          
+        INSERT INTO civicrm_contacthistory_address (
+          contact_id, location_type_id, is_primary, is_billing, street_address,
+          street_number, street_number_suffix, street_number_predirectional,
+          street_name, street_type, street_number_postdirectional, street_unit,
+          supplemental_address_1, supplemental_address_2, supplemental_address_3,
+          city, county_id, state_province_id, postal_code_suffix, postal_code,
+          usps_adr_dp, country_id, geo_code_1, geo_code_2, manual_geo_code,
+          timezone, name, master_id
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.is_primary, NEW.is_billing, NEW.street_address,
+          NEW.street_number, NEW.street_number_suffix, NEW.street_number_predirectional,
+          NEW.street_name, NEW.street_type, NEW.street_number_postdirectional, NEW.street_unit,
+          NEW.supplemental_address_1, NEW.supplemental_address_2, NEW.supplemental_address_3,
+          NEW.city, NEW.county_id, NEW.state_province_id, NEW.postal_code_suffix, NEW.postal_code,
+          NEW.usps_adr_dp, NEW.country_id, NEW.geo_code_1, NEW.geo_code_2, NEW.manual_geo_code,
+          NEW.timezone, NEW.name, NEW.master_id
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Delete trigger
+    $sql = "
+      CREATE TRIGGER tr_address_delete_history
+      AFTER DELETE ON civicrm_address
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_address 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+  }
+
+  /**
+   * Create email history triggers.
+   */
+  private function createEmailTriggers(): void {
+    // Insert trigger
+    $sql = "
+      CREATE TRIGGER tr_email_insert_history
+      AFTER INSERT ON civicrm_email
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO civicrm_contacthistory_email (
+          contact_id, location_type_id, email, is_primary, is_billing,
+          on_hold, is_bulkmail, hold_date, reset_date,
+          signature_text, signature_html
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.email, NEW.is_primary, NEW.is_billing,
+          NEW.on_hold, NEW.is_bulkmail, NEW.hold_date, NEW.reset_date,
+          NEW.signature_text, NEW.signature_html
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Update trigger
+    $sql = "
+      CREATE TRIGGER tr_email_update_history
+      AFTER UPDATE ON civicrm_email
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_email 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+          
+        INSERT INTO civicrm_contacthistory_email (
+          contact_id, location_type_id, email, is_primary, is_billing,
+          on_hold, is_bulkmail, hold_date, reset_date,
+          signature_text, signature_html
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.email, NEW.is_primary, NEW.is_billing,
+          NEW.on_hold, NEW.is_bulkmail, NEW.hold_date, NEW.reset_date,
+          NEW.signature_text, NEW.signature_html
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Delete trigger
+    $sql = "
+      CREATE TRIGGER tr_email_delete_history
+      AFTER DELETE ON civicrm_email
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_email 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+  }
+
+  /**
+   * Create phone history triggers.
+   */
+  private function createPhoneTriggers(): void {
+    // Insert trigger
+    $sql = "
+      CREATE TRIGGER tr_phone_insert_history
+      AFTER INSERT ON civicrm_phone
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO civicrm_contacthistory_phone (
+          contact_id, location_type_id, is_primary, is_billing,
+          mobile_provider_id, phone, phone_ext, phone_numeric, phone_type_id
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.is_primary, NEW.is_billing,
+          NEW.mobile_provider_id, NEW.phone, NEW.phone_ext, NEW.phone_numeric, NEW.phone_type_id
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Update trigger
+    $sql = "
+      CREATE TRIGGER tr_phone_update_history
+      AFTER UPDATE ON civicrm_phone
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_phone 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+          
+        INSERT INTO civicrm_contacthistory_phone (
+          contact_id, location_type_id, is_primary, is_billing,
+          mobile_provider_id, phone, phone_ext, phone_numeric, phone_type_id
+        ) VALUES (
+          NEW.contact_id, NEW.location_type_id, NEW.is_primary, NEW.is_billing,
+          NEW.mobile_provider_id, NEW.phone, NEW.phone_ext, NEW.phone_numeric, NEW.phone_type_id
+        );
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+
+    // Delete trigger
+    $sql = "
+      CREATE TRIGGER tr_phone_delete_history
+      AFTER DELETE ON civicrm_phone
+      FOR EACH ROW
+      BEGIN
+        UPDATE civicrm_contacthistory_phone 
+        SET end_date = NOW() 
+        WHERE contact_id = OLD.contact_id 
+          AND location_type_id = OLD.location_type_id 
+          AND end_date IS NULL;
+      END
+    ";
+    CRM_Core_DAO::executeQuery($sql);
+  }
+
+}
+
+---FILE: sql/install.sql---
+-- Create history tables
+CREATE TABLE IF NOT EXISTS `civicrm_contacthistory_address` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'Unique Address ID',
+  `contact_id` int unsigned COMMENT 'FK to Contact ID',
+  `location_type_id` int unsigned COMMENT 'Which Location does this address belong to.',
+  `is_primary` tinyint DEFAULT 0 COMMENT 'Is this the primary address.',
+  `is_billing` tinyint DEFAULT 0 COMMENT 'Is this the billing address.',
+  `street_address` varchar(96) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Concatenation of all routable street address components (prefix, street number, street name, suffix, unit
+                      number OR P.O. Box). Apps should be able to determine physical location with this data (for mapping, mail
+                      delivery, etc.).',
+  `street_number` int DEFAULT NULL COMMENT 'Numeric portion of address number on the street, e.g. For 112A Main St, the street_number = 112.',
+  `street_number_suffix` varchar(8) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Non-numeric portion of address number on the street, e.g. For 112A Main St, the street_number_suffix = A',
+  `street_number_predirectional` varchar(8) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Directional prefix, e.g. SE Main St, SE is the prefix.',
+  `street_name` varchar(64) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Actual street name, excluding St, Dr, Rd, Ave, e.g. For 112 Main St, the street_name = Main.',
+  `street_type` varchar(8) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'St, Rd, Dr, etc.',
+  `street_number_postdirectional` varchar(8) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Directional suffix, e.g. Main St S, S is the suffix.',
+  `street_unit` varchar(16) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Secondary unit designator, e.g. Apt 3 or Unit # 14, or Bldg 1200',
+  `supplemental_address_1` varchar(96) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Supplemental Address Information, Line 1',
+  `supplemental_address_2` varchar(96) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Supplemental Address Information, Line 2',
+  `supplemental_address_3` varchar(96) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Supplemental Address Information, Line 3',
+  `city` varchar(64) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'City, Town or Village name.',
+  `county_id` int unsigned DEFAULT NULL COMMENT 'Which County does this address belong to.',
+  `state_province_id` int unsigned DEFAULT NULL COMMENT 'Which State_Province does this address belong to.',
+  `postal_code_suffix` varchar(12) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Store the suffix, like the +4 part in the USPS system.',
+  `postal_code` varchar(64) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Store both US (zip5) AND international postal codes. App is responsible for country/region appropriate validation.',
+  `usps_adr_dp` varchar(10) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'USPS Bulk mailing code.',
+  `country_id` int unsigned DEFAULT NULL COMMENT 'Which Country does this address belong to.',
+  `geo_code_1` double DEFAULT NULL COMMENT 'Latitude',
+  `geo_code_2` double DEFAULT NULL COMMENT 'Longitude',
+  `manual_geo_code` tinyint DEFAULT 0 COMMENT 'Is this a manually entered geo code',
+  `timezone` varchar(8) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Timezone expressed as a UTC offset - e.g. United States CST would be written as "UTC-6".',
+  `name` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Name of the location',
+  `master_id` int unsigned DEFAULT NULL COMMENT 'Saved address belongs to which contact',
+  `start_date` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT 'When this history record was created',
+  `modified_date` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'When this history record was last modified',
+  `end_date` timestamp NULL DEFAULT NULL COMMENT 'When this address was deleted/replaced',
+  PRIMARY KEY (`id`),
+  KEY `index_contact_id` (`contact_id`),
+  KEY `index_location_type` (`location_type_id`),
+  KEY `index_is_primary` (`is_primary`),
+  KEY `index_is_billing` (`is_billing`),
+  KEY `index_street_name` (`street_name`),
+  KEY `index_city` (`city`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `civicrm_contacthistory_email` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'Unique Email ID',
+  `contact_id` int unsigned COMMENT 'FK to Contact ID',
+  `location_type_id` int unsigned COMMENT 'Which Location does this email belong to.',
+  `email` varchar(254) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Email address',
+  `is_primary` tinyint DEFAULT 0 COMMENT 'Is this the primary email for this contact and location.',
+  `is_billing` tinyint DEFAULT 0 COMMENT 'Is this the billing email for this contact and location.',
+  `on_hold` int unsigned NOT NULL DEFAULT 0 COMMENT 'Is this address on bounce hold (for mailings)',
+  `is_bulkmail` tinyint DEFAULT 0 COMMENT 'Is this address for bulk mail ?',
+  `hold_date` datetime DEFAULT NULL COMMENT 'When the address went on bounce hold',
+  `reset_date` datetime DEFAULT NULL COMMENT 'When the address bounce status was last reset',
+  `signature_text` text COLLATE utf8_unicode_ci COMMENT 'Text formatted signature for the email.',
+  `signature_html` text COLLATE utf8_unicode_ci COMMENT 'HTML formatted signature for the email.',
+  `start_date` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT 'When this history record was created',
+  `modified_date` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'When this history record was last modified',
+  `end_date` timestamp NULL DEFAULT NULL COMMENT 'When this email was deleted/replaced',
+  PRIMARY KEY (`id`),
+  KEY `index_contact_id` (`contact_id`),
+  KEY `index_location_type` (`location_type_id`),
+  KEY `index_email` (`email`),
+  KEY `index_is_primary` (`is_primary`),
+  KEY `index_is_billing` (`is_billing`),
+  KEY `index_on_hold` (`on_hold`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `civicrm_contacthistory_phone` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'Unique Phone ID',
+  `contact_id` int unsigned COMMENT 'FK to Contact ID',
+  `location_type_id` int unsigned COMMENT 'Which Location does this phone belong to.',
+  `is_primary` tinyint DEFAULT 0 COMMENT 'Is this the primary phone for this contact and location.',
+  `is_billing` tinyint DEFAULT 0 COMMENT 'Is this the billing phone for this contact and location.',
+  `mobile_provider_id` int unsigned DEFAULT NULL COMMENT 'Which Mobile Provider does this phone belong to.',
+  `phone` varchar(32) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Complete phone number.',
+  `phone_ext` varchar(16) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Optional extension for a phone number.',
+  `phone_numeric` varchar(32) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Phone Phone number stripped of all whitespace, letters, and punctuation.',
+  `phone_type_id` int unsigned DEFAULT NULL COMMENT 'Which type of phone does this number belongs.',
+  `start_date` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT 'When this history record was created',
+  `modified_date` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'When this history record was last modified',
+  `end_date` timestamp NULL DEFAULT NULL COMMENT 'When this phone was deleted/replaced',
+  PRIMARY KEY (`id`),
+  KEY `index_contact_id` (`contact_id`),
+  KEY `index_location_type` (`location_type_id`),
+  KEY `index_is_primary` (`is_primary`),
+  KEY `index_is_billing` (`is_billing`),
+  KEY `index_phone_numeric` (`phone_numeric`),
+  KEY `index_phone_type_id` (`phone_type_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+---FILE: sql/enable.sql---
+-- Insert current data into history tables
+INSERT INTO civicrm_contacthistory_address (
+  contact_id, location_type_id, is_primary, is_billing, street_address,
+  street_number, street_number_suffix, street_number_predirectional,
+  street_name, street_type, street_number_postdirectional, street_unit,
+  supplemental_address_1, supplemental_address_2, supplemental_address_3,
+  city, county_id, state_province_id, postal_code_suffix, postal_code,
+  usps_adr_dp, country_id, geo_code_1, geo_code_2, manual_geo_code,
+  timezone, name, master_id
+)
+SELECT 
+  contact_id, location_type_id, is_primary, is_billing, street_address,
+  street_number, street_number_suffix, street_number_predirectional,
+  street_name, street_type, street_number_postdirectional, street_unit,
+  supplemental_address_1, supplemental_address_2, supplemental_address_3,
+  city, county_id, state_province_id, postal_code_suffix, postal_code,
+  usps_adr_dp, country_id, geo_code_1, geo_code_2, manual_geo_code,
+  timezone, name, master_id
+FROM civicrm_address;
+
+INSERT INTO civicrm_contacthistory_email (
+  contact_id, location_type_id, email, is_primary, is_billing,
+  on_hold, is_bulkmail, hold_date, reset_date,
+  signature_text, signature_html
+)
+SELECT 
+  contact_id, location_type_id, email, is_primary, is_billing,
+  on_hold, is_bulkmail, hold_date, reset_date,
+  signature_text, signature_html
+FROM civicrm_email;
+
+INSERT INTO civicrm_contacthistory_phone (
+  contact_id, location_type_id, is_primary, is_billing,
+  mobile_provider_id, phone, phone_ext, phone_numeric, phone_type_id
+)
+SELECT 
+  contact_id, location_type_id, is_primary, is_billing,
+  mobile_provider_id, phone, phone_ext, phone_numeric, phone_type_id
+FROM civicrm_phone;
+
+---FILE: sql/disable.sql---
+-- Triggers are dropped in PHP code via Upgrader::disable()
+
+---FILE: sql/uninstall.sql---
+-- Triggers are dropped in PHP code via Upgrader::uninstall()
+
+-- Drop tables
+DROP TABLE IF EXISTS civicrm_contacthistory_address;
+DROP TABLE IF EXISTS civicrm_contacthistory_email;
+DROP TABLE IF EXISTS civicrm_contacthistory_phone;
+
+---FILE: CRM/Contacthistory/BAO/ContacthistoryAddress.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_BAO_ContacthistoryAddress extends CRM_Contacthistory_DAO_ContacthistoryAddress {
+
+  /**
+   * Create a new ContacthistoryAddress based on array-data
+   *
+   * @param array $params key-value pairs
+   * @return CRM_Contacthistory_DAO_ContacthistoryAddress|NULL
+   */
+  public static function create($params) {
+    $className = 'CRM_Contacthistory_DAO_ContacthistoryAddress';
+    $entityName = 'ContacthistoryAddress';
+    $hook = empty($params['id']) ? 'create' : 'edit';
+
+    CRM_Utils_Hook::pre($hook, $entityName, CRM_Utils_Array::value('id', $params), $params);
+    $instance = new $className();
+    $instance->copyValues($params);
+    $instance->save();
+    CRM_Utils_Hook::post($hook, $entityName, $instance->id, $instance);
+
+    return $instance;
+  }
+
+  /**
+   * Get history count for a contact
+   *
+   * @param int $contactId
+   * @return int
+   */
+  public static function getHistoryCount($contactId) {
+    $sql = "SELECT COUNT(*) FROM civicrm_contacthistory_address WHERE contact_id = %1";
+    return CRM_Core_DAO::singleValueQuery($sql, [1 => [$contactId, 'Integer']]);
+  }
+
+  /**
+   * Get history for a contact
+   *
+   * @param int $contactId
+   * @return array
+   */
+  public static function getHistory($contactId) {
+    $sql = "
+      SELECT h.*, lt.display_name as location_type, sp.name as state_province, c.name as country
+      FROM civicrm_contacthistory_address h
+      LEFT JOIN civicrm_location_type lt ON h.location_type_id = lt.id
+      LEFT JOIN civicrm_state_province sp ON h.state_province_id = sp.id
+      LEFT JOIN civicrm_country c ON h.country_id = c.id
+      WHERE h.contact_id = %1
+      ORDER BY h.start_date DESC, h.id DESC
+    ";
+    
+    $dao = CRM_Core_DAO::executeQuery($sql, [1 => [$contactId, 'Integer']]);
+    $results = [];
+    while ($dao->fetch()) {
+      $results[] = $dao->toArray();
+    }
+    return $results;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/BAO/ContacthistoryEmail.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_BAO_ContacthistoryEmail extends CRM_Contacthistory_DAO_ContacthistoryEmail {
+
+  /**
+   * Create a new ContacthistoryEmail based on array-data
+   *
+   * @param array $params key-value pairs
+   * @return CRM_Contacthistory_DAO_ContacthistoryEmail|NULL
+   */
+  public static function create($params) {
+    $className = 'CRM_Contacthistory_DAO_ContacthistoryEmail';
+    $entityName = 'ContacthistoryEmail';
+    $hook = empty($params['id']) ? 'create' : 'edit';
+
+    CRM_Utils_Hook::pre($hook, $entityName, CRM_Utils_Array::value('id', $params), $params);
+    $instance = new $className();
+    $instance->copyValues($params);
+    $instance->save();
+    CRM_Utils_Hook::post($hook, $entityName, $instance->id, $instance);
+
+    return $instance;
+  }
+
+  /**
+   * Get history count for a contact
+   *
+   * @param int $contactId
+   * @return int
+   */
+  public static function getHistoryCount($contactId) {
+    $sql = "SELECT COUNT(*) FROM civicrm_contacthistory_email WHERE contact_id = %1";
+    return CRM_Core_DAO::singleValueQuery($sql, [1 => [$contactId, 'Integer']]);
+  }
+
+  /**
+   * Get history for a contact
+   *
+   * @param int $contactId
+   * @return array
+   */
+  public static function getHistory($contactId) {
+    $sql = "
+      SELECT h.*, lt.display_name as location_type
+      FROM civicrm_contacthistory_email h
+      LEFT JOIN civicrm_location_type lt ON h.location_type_id = lt.id
+      WHERE h.contact_id = %1
+      ORDER BY h.start_date DESC, h.id DESC
+    ";
+    
+    $dao = CRM_Core_DAO::executeQuery($sql, [1 => [$contactId, 'Integer']]);
+    $results = [];
+    while ($dao->fetch()) {
+      $results[] = $dao->toArray();
+    }
+    return $results;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/BAO/ContacthistoryPhone.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_BAO_ContacthistoryPhone extends CRM_Contacthistory_DAO_ContacthistoryPhone {
+
+  /**
+   * Create a new ContacthistoryPhone based on array-data
+   *
+   * @param array $params key-value pairs
+   * @return CRM_Contacthistory_DAO_ContacthistoryPhone|NULL
+   */
+  public static function create($params) {
+    $className = 'CRM_Contacthistory_DAO_ContacthistoryPhone';
+    $entityName = 'ContacthistoryPhone';
+    $hook = empty($params['id']) ? 'create' : 'edit';
+
+    CRM_Utils_Hook::pre($hook, $entityName, CRM_Utils_Array::value('id', $params), $params);
+    $instance = new $className();
+    $instance->copyValues($params);
+    $instance->save();
+    CRM_Utils_Hook::post($hook, $entityName, $instance->id, $instance);
+
+    return $instance;
+  }
+
+  /**
+   * Get history count for a contact
+   *
+   * @param int $contactId
+   * @return int
+   */
+  public static function getHistoryCount($contactId) {
+    $sql = "SELECT COUNT(*) FROM civicrm_contacthistory_phone WHERE contact_id = %1";
+    return CRM_Core_DAO::singleValueQuery($sql, [1 => [$contactId, 'Integer']]);
+  }
+
+  /**
+   * Get history for a contact
+   *
+   * @param int $contactId
+   * @return array
+   */
+  public static function getHistory($contactId) {
+    $sql = "
+      SELECT h.*, lt.display_name as location_type, pt.display_name as phone_type
+      FROM civicrm_contacthistory_phone h
+      LEFT JOIN civicrm_location_type lt ON h.location_type_id = lt.id
+      LEFT JOIN civicrm_option_value pt ON h.phone_type_id = pt.value AND pt.option_group_id = (
+        SELECT id FROM civicrm_option_group WHERE name = 'phone_type'
+      )
+      WHERE h.contact_id = %1
+      ORDER BY h.start_date DESC, h.id DESC
+    ";
+    
+    $dao = CRM_Core_DAO::executeQuery($sql, [1 => [$contactId, 'Integer']]);
+    $results = [];
+    while ($dao->fetch()) {
+      $results[] = $dao->toArray();
+    }
+    return $results;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/Page/ContactHistory.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_Page_ContactHistory extends CRM_Core_Page {
+
+  public function run() {
+    $contactId = CRM_Utils_Request::retrieve('cid', 'Positive', $this, TRUE);
+    
+    // Check permission
+    if (!CRM_Contact_BAO_Contact_Permission::allow($contactId, CRM_Core_Permission::VIEW)) {
+      CRM_Core_Error::statusBounce(E::ts('You do not have permission to view this contact.'));
+    }
+
+    // Get history data
+    $addressHistory = CRM_Contacthistory_BAO_ContacthistoryAddress::getHistory($contactId);
+    $emailHistory = CRM_Contacthistory_BAO_ContacthistoryEmail::getHistory($contactId);
+    $phoneHistory = CRM_Contacthistory_BAO_ContacthistoryPhone::getHistory($contactId);
+
+    // Check manage permission
+    $canManage = CRM_Core_Permission::check('administer CiviCRM') || 
+                 CRM_Core_Permission::check('manage contact history');
+
+    $this->assign('contactId', $contactId);
+    $this->assign('addressHistory', $addressHistory);
+    $this->assign('emailHistory', $emailHistory);
+    $this->assign('phoneHistory', $phoneHistory);
+    $this->assign('canManage', $canManage);
+
+    parent::run();
+  }
+
+}
+
+---FILE: CRM/Contacthistory/Form/Edit.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_Form_Edit extends CRM_Core_Form {
+
+  protected $_id;
+  protected $_type;
+  protected $_contactId;
+
+  public function preProcess() {
+    $this->_id = CRM_Utils_Request::retrieve('id', 'Positive', $this);
+    $this->_type = CRM_Utils_Request::retrieve('type', 'String', $this, TRUE);
+    $this->_contactId = CRM_Utils_Request::retrieve('cid', 'Positive', $this, TRUE);
+
+    // Check permission
+    if (!CRM_Core_Permission::check('administer CiviCRM') && 
+        !CRM_Core_Permission::check('manage contact history')) {
+      CRM_Core_Error::statusBounce(E::ts('You do not have permission to edit contact history.'));
+    }
+
+    $this->setPageTitle(E::ts('Edit Contact History'));
+  }
+
+  public function buildQuickForm() {
+    // Build form based on type
+    switch ($this->_type) {
+      case 'address':
+        $this->buildAddressForm();
+        break;
+      case 'email':
+        $this->buildEmailForm();
+        break;
+      case 'phone':
+        $this->buildPhoneForm();
+        break;
+    }
+
+    $this->addButtons([
+      [
+        'type' => 'upload',
+        'name' => E::ts('Save'),
+        'isDefault' => TRUE,
+      ],
+      [
+        'type' => 'cancel',
+        'name' => E::ts('Cancel'),
+      ],
+    ]);
+
+    parent::buildQuickForm();
+  }
+
+  protected function buildAddressForm() {
+    // Add address form elements
+    $this->add('text', 'street_address', E::ts('Street Address'));
+    $this->add('text', 'city', E::ts('City'));
+    $this->add('text', 'postal_code', E::ts('Postal Code'));
+    
+    // Add location type
+    $locationTypes = CRM_Core_BAO_Address::buildOptions('location_type_id');
+    $this->add('select', 'location_type_id', E::ts('Location Type'), $locationTypes);
+    
+    // Add checkboxes
+    $this->add('checkbox', 'is_primary', E::ts('Primary?'));
+    $this->add('checkbox', 'is_billing', E::ts('Billing?'));
+  }
+
+  protected function buildEmailForm() {
+    $this->add('text', 'email', E::ts('Email'), [], TRUE);
+    
+    $locationTypes = CRM_Core_BAO_Email::buildOptions('location_type_id');
+    $this->add('select', 'location_type_id', E::ts('Location Type'), $locationTypes);
+    
+    $this->add('checkbox', 'is_primary', E::ts('Primary?'));
+    $this->add('checkbox', 'is_billing', E::ts('Billing?'));
+  }
+
+  protected function buildPhoneForm() {
+    $this->add('text', 'phone', E::ts('Phone'), [], TRUE);
+    $this->add('text', 'phone_ext', E::ts('Extension'));
+    
+    $locationTypes = CRM_Core_BAO_Phone::buildOptions('location_type_id');
+    $this->add('select', 'location_type_id', E::ts('Location Type'), $locationTypes);
+    
+    $phoneTypes = CRM_Core_BAO_Phone::buildOptions('phone_type_id');
+    $this->add('select', 'phone_type_id', E::ts('Phone Type'), $phoneTypes);
+    
+    $this->add('checkbox', 'is_primary', E::ts('Primary?'));
+    $this->add('checkbox', 'is_billing', E::ts('Billing?'));
+  }
+
+  public function setDefaultValues() {
+    $defaults = [];
+    
+    if ($this->_id) {
+      $className = 'CRM_Contacthistory_BAO_Contacthistory' . ucfirst($this->_type);
+      if (class_exists($className)) {
+        $bao = new $className();
+        $bao->id = $this->_id;
+        if ($bao->find(TRUE)) {
+          $defaults = $bao->toArray();
+        }
+      }
+    }
+    
+    return $defaults;
+  }
+
+  public function postProcess() {
+    $values = $this->exportValues();
+    $values['contact_id'] = $this->_contactId;
+    
+    if ($this->_id) {
+      $values['id'] = $this->_id;
+    }
+
+    $className = 'CRM_Contacthistory_BAO_Contacthistory' . ucfirst($this->_type);
+    if (class_exists($className)) {
+      $className::create($values);
+    }
+
+    CRM_Core_Session::setStatus(E::ts('Contact history has been saved.'), E::ts('Saved'), 'success');
+    
+    $url = CRM_Utils_System::url('civicrm/contact/view/contacthistory', [
+      'cid' => $this->_contactId,
+      'reset' => 1,
+    ]);
+    CRM_Utils_System::redirect($url);
+  }
+
+}
+
+---FILE: templates/CRM/Contacthistory/Page/ContactHistory.tpl---
+{* Contact History tab template *}
+<div class="crm-contact-history">
+  <div class="crm-summary-block">
+    {if $addressHistory}
+      <div class="crm-history-section">
+        <h3>{ts}Address History{/ts}</h3>
+        <table class="crm-history-table">
+          <thead>
+            <tr>
+              <th>{ts}Location{/ts}</th>
+              <th>{ts}Address{/ts}</th>
+              <th>{ts}City{/ts}</th>
+              <th>{ts}State/Province{/ts}</th>
+              <th>{ts}Postal Code{/ts}</th>
+              <th>{ts}Country{/ts}</th>
+              <th>{ts}Start Date{/ts}</th>
+              <th>{ts}End Date{/ts}</th>
+              {if $canManage}<th>{ts}Actions{/ts}</th>{/if}
+            </tr>
+          </thead>
+          <tbody>
+            {foreach from=$addressHistory item=address}
+              <tr class="{if $address.end_date}crm-history-ended{else}crm-history-current{/if}">
+                <td>{$address.location_type}</td>
+                <td>{$address.street_address}</td>
+                <td>{$address.city}</td>
+                <td>{$address.state_province}</td>
+                <td>{$address.postal_code}</td>
+                <td>{$address.country}</td>
+                <td>{$address.start_date|crmDate}</td>
+                <td>{if $address.end_date}{$address.end_date|crmDate}{else}{ts}Current{/ts}{/if}</td>
+                {if $canManage}
+                  <td>
+                    <a href="{crmURL p='civicrm/contacthistory/edit' q="type=address&id=`$address.id`&cid=`$contactId`&reset=1"}" class="action-item">{ts}Edit{/ts}</a>
+                    <a href="{crmURL p='civicrm/contacthistory/delete' q="type=address&id=`$address.id`&cid=`$contactId`&reset=1"}" class="action-item delete-link">{ts}Delete{/ts}</a>
+                  </td>
+                {/if}
+              </tr>
+            {/foreach}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+
+    {if $emailHistory}
+      <div class="crm-history-section">
+        <h3>{ts}Email History{/ts}</h3>
+        <table class="crm-history-table">
+          <thead>
+            <tr>
+              <th>{ts}Location{/ts}</th>
+              <th>{ts}Email{/ts}</th>
+              <th>{ts}Primary{/ts}</th>
+              <th>{ts}Billing{/ts}</th>
+              <th>{ts}On Hold{/ts}</th>
+              <th>{ts}Start Date{/ts}</th>
+              <th>{ts}End Date{/ts}</th>
+              {if $canManage}<th>{ts}Actions{/ts}</th>{/if}
+            </tr>
+          </thead>
+          <tbody>
+            {foreach from=$emailHistory item=email}
+              <tr class="{if $email.end_date}crm-history-ended{else}crm-history-current{/if}">
+                <td>{$email.location_type}</td>
+                <td>{$email.email}</td>
+                <td>{if $email.is_primary}{ts}Yes{/ts}{/if}</td>
+                <td>{if $email.is_billing}{ts}Yes{/ts}{/if}</td>
+                <td>{if $email.on_hold}{ts}Yes{/ts}{/if}</td>
+                <td>{$email.start_date|crmDate}</td>
+                <td>{if $email.end_date}{$email.end_date|crmDate}{else}{ts}Current{/ts}{/if}</td>
+                {if $canManage}
+                  <td>
+                    <a href="{crmURL p='civicrm/contacthistory/edit' q="type=email&id=`$email.id`&cid=`$contactId`&reset=1"}" class="action-item">{ts}Edit{/ts}</a>
+                    <a href="{crmURL p='civicrm/contacthistory/delete' q="type=email&id=`$email.id`&cid=`$contactId`&reset=1"}" class="action-item delete-link">{ts}Delete{/ts}</a>
+                  </td>
+                {/if}
+              </tr>
+            {/foreach}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+
+    {if $phoneHistory}
+      <div class="crm-history-section">
+        <h3>{ts}Phone History{/ts}</h3>
+        <table class="crm-history-table">
+          <thead>
+            <tr>
+              <th>{ts}Location{/ts}</th>
+              <th>{ts}Phone{/ts}</th>
+              <th>{ts}Extension{/ts}</th>
+              <th>{ts}Type{/ts}</th>
+              <th>{ts}Primary{/ts}</th>
+              <th>{ts}Start Date{/ts}</th>
+              <th>{ts}End Date{/ts}</th>
+              {if $canManage}<th>{ts}Actions{/ts}</th>{/if}
+            </tr>
+          </thead>
+          <tbody>
+            {foreach from=$phoneHistory item=phone}
+              <tr class="{if $phone.end_date}crm-history-ended{else}crm-history-current{/if}">
+                <td>{$phone.location_type}</td>
+                <td>{$phone.phone}</td>
+                <td>{$phone.phone_ext}</td>
+                <td>{$phone.phone_type}</td>
+                <td>{if $phone.is_primary}{ts}Yes{/ts}{/if}</td>
+                <td>{$phone.start_date|crmDate}</td>
+                <td>{if $phone.end_date}{$phone.end_date|crmDate}{else}{ts}Current{/ts}{/if}</td>
+                {if $canManage}
+                  <td>
+                    <a href="{crmURL p='civicrm/contacthistory/edit' q="type=phone&id=`$phone.id`&cid=`$contactId`&reset=1"}" class="action-item">{ts}Edit{/ts}</a>
+                    <a href="{crmURL p='civicrm/contacthistory/delete' q="type=phone&id=`$phone.id`&cid=`$contactId`&reset=1"}" class="action-item delete-link">{ts}Delete{/ts}</a>
+                  </td>
+                {/if}
+              </tr>
+            {/foreach}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+
+    {if !$addressHistory && !$emailHistory && !$phoneHistory}
+      <div class="messages help">
+        {ts}No contact history found.{/ts}
+      </div>
+    {/if}
+  </div>
+</div>
+
+<style>
+{literal}
+.crm-contact-history .crm-history-section {
+  margin-bottom: 2em;
+}
+
+.crm-contact-history .crm-history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.crm-contact-history .crm-history-table th,
+.crm-contact-history .crm-history-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.crm-contact-history .crm-history-table th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+
+.crm-contact-history .crm-history-ended {
+  background-color: #f9f9f9;
+  color: #666;
+}
+
+.crm-contact-history .crm-history-current {
+  background-color: #fff;
+}
+
+.crm-contact-history .action-item {
+  margin-right: 10px;
+}
+
+.crm-contact-history .delete-link {
+  color: #d9534f;
+}
+{/literal}
+</style>
+
+{literal}
+<script>
+CRM.$(function($) {
+  $('.delete-link').click(function(e) {
+    e.preventDefault();
+    var url = $(this).attr('href');
+    CRM.confirm({
+      title: '{/literal}{ts escape='js'}Delete History Record{/ts}{literal}',
+      message: '{/literal}{ts escape='js'}Are you sure you want to delete this history record? This action cannot be undone.{/ts}{literal}'
+    }).on('crmConfirm:yes', function() {
+      window.location.href = url;
+    });
+  });
+});
+</script>
+{/literal}
+
+---FILE: xml/Menu/contacthistory.xml---
+<?xml version="1.0"?>
+<menu>
+  <item>
+    <path>civicrm/contact/view/contacthistory</path>
+    <page_callback>CRM_Contacthistory_Page_ContactHistory</page_callback>
+    <title>Contact History</title>
+    <access_arguments>access CiviCRM</access_arguments>
+  </item>
+  <item>
+    <path>civicrm/contacthistory/edit</path>
+    <page_callback>CRM_Contacthistory_Form_Edit</page_callback>
+    <title>Edit Contact History</title>
+    <access_arguments>manage contact history</access_arguments>
+  </item>
+  <item>
+    <path>civicrm/contacthistory/delete</path>
+    <page_callback>CRM_Contacthistory_Form_Delete</page_callback>
+    <title>Delete Contact History</title>
+    <access_arguments>manage contact history</access_arguments>
+  </item>
+</menu>
+
+---FILE: api/v3/ContacthistoryAddress.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * ContacthistoryAddress.create API specification (optional).
+ * This is used for documentation and validation.
+ *
+ * @param array $spec description of fields supported by this API call
+ *
+ * @see https://docs.civicrm.org/dev/en/latest/framework/api-architecture/
+ */
+function _civicrm_api3_contacthistory_address_create_spec(&$spec) {
+  $spec['contact_id']['api.required'] = 1;
+}
+
+/**
+ * ContacthistoryAddress.create API.
+ *
+ * @param array $params
+ *
+ * @return array
+ *   API result descriptor
+ *
+ * @throws API_Exception
+ */
+function civicrm_api3_contacthistory_address_create($params) {
+  return _civicrm_api3_basic_create(_civicrm_api3_get_BAO(__FUNCTION__), $params, 'ContacthistoryAddress');
+}
+
+/**
+ * ContacthistoryAddress.delete API.
+ *
+ * @param array $params
+ *
+ * @return array
+ *   API result descriptor
+ *
+ * @throws API_Exception
+ */
+function civicrm_api3_contacthistory_address_delete($params) {
+  return _civicrm_api3_basic_delete(_civicrm_api3_get_BAO(__FUNCTION__), $params);
+}
+
+/**
+ * ContacthistoryAddress.get API.
+ *
+ * @param array $params
+ *
+ * @return array
+ *   API result descriptor
+ *
+ * @throws API_Exception
+ */
+function civicrm_api3_contacthistory_address_get($params) {
+  return _civicrm_api3_basic_get(_civicrm_api3_get_BAO(__FUNCTION__), $params, TRUE, 'ContacthistoryAddress');
+}
+
+---FILE: api/v3/ContacthistoryEmail.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * ContacthistoryEmail.create API specification (optional).
+ */
+function _civicrm_api3_contacthistory_email_create_spec(&$spec) {
+  $spec['contact_id']['api.required'] = 1;
+}
+
+/**
+ * ContacthistoryEmail.create API.
+ */
+function civicrm_api3_contacthistory_email_create($params) {
+  return _civicrm_api3_basic_create(_civicrm_api3_get_BAO(__FUNCTION__), $params, 'ContacthistoryEmail');
+}
+
+/**
+ * ContacthistoryEmail.delete API.
+ */
+function civicrm_api3_contacthistory_email_delete($params) {
+  return _civicrm_api3_basic_delete(_civicrm_api3_get_BAO(__FUNCTION__), $params);
+}
+
+/**
+ * ContacthistoryEmail.get API.
+ */
+function civicrm_api3_contacthistory_email_get($params) {
+  return _civicrm_api3_basic_get(_civicrm_api3_get_BAO(__FUNCTION__), $params, TRUE, 'ContacthistoryEmail');
+}
+
+---FILE: api/v3/ContacthistoryPhone.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * ContacthistoryPhone.create API specification (optional).
+ */
+function _civicrm_api3_contacthistory_phone_create_spec(&$spec) {
+  $spec['contact_id']['api.required'] = 1;
+}
+
+/**
+ * ContacthistoryPhone.create API.
+ */
+function civicrm_api3_contacthistory_phone_create($params) {
+  return _civicrm_api3_basic_create(_civicrm_api3_get_BAO(__FUNCTION__), $params, 'ContacthistoryPhone');
+}
+
+/**
+ * ContacthistoryPhone.delete API.
+ */
+function civicrm_api3_contacthistory_phone_delete($params) {
+  return _civicrm_api3_basic_delete(_civicrm_api3_get_BAO(__FUNCTION__), $params);
+}
+
+/**
+ * ContacthistoryPhone.get API.
+ */
+function civicrm_api3_contacthistory_phone_get($params) {
+  return _civicrm_api3_basic_get(_civicrm_api3_get_BAO(__FUNCTION__), $params, TRUE, 'ContacthistoryPhone');
+}
+
+---FILE: Civi/Api4/ContacthistoryAddress.php---
+<?php
+namespace Civi\Api4;
+
+/**
+ * ContacthistoryAddress entity.
+ *
+ * Provided by the Contact History extension.
+ *
+ * @searchable primary
+ * @since 5.19
+ * @package Civi\Api4
+ */
+class ContacthistoryAddress extends Generic\DAOEntity {
+  use Generic\Traits\ManagedEntity;
+
+}
+
+---FILE: Civi/Api4/ContacthistoryEmail.php---
+<?php
+namespace Civi\Api4;
+
+/**
+ * ContacthistoryEmail entity.
+ *
+ * Provided by the Contact History extension.
+ *
+ * @searchable primary
+ * @since 5.19
+ * @package Civi\Api4
+ */
+class ContacthistoryEmail extends Generic\DAOEntity {
+  use Generic\Traits\ManagedEntity;
+
+}
+
+---FILE: Civi/Api4/ContacthistoryPhone.php---
+<?php
+namespace Civi\Api4;
+
+/**
+ * ContacthistoryPhone entity.
+ *
+ * Provided by the Contact History extension.
+ *
+ * @searchable primary
+ * @since 5.19
+ * @package Civi\Api4
+ */
+class ContacthistoryPhone extends Generic\DAOEntity {
+  use Generic\Traits\ManagedEntity;
+
+}
+
+---FILE: CRM/Contacthistory/DAO/ContacthistoryAddress.php---
+<?php
+
+/**
+ * @package CRM
+ * @copyright CiviCRM LLC https://civicrm.org/licensing
+ *
+ * Generated from com.moellman.addresshistory/xml/schema/CRM/Contacthistory/ContacthistoryAddress.xml
+ * DO NOT EDIT.  Generated by CRM_Core_CodeGen
+ * (GenCodeChecksum:e8c1234567890abcdef)
+ */
+
+/**
+ * Database access object for the ContacthistoryAddress entity.
+ */
+class CRM_Contacthistory_DAO_ContacthistoryAddress extends CRM_Core_DAO {
+  const EXT = E::LONG_NAME;
+  const TABLE_ADDED = '';
+
+  /**
+   * Static instance to hold the table name.
+   *
+   * @var string
+   */
+  public static $_tableName = 'civicrm_contacthistory_address';
+
+  /**
+   * Should CiviCRM log any modifications to this table in the civicrm_log table.
+   *
+   * @var bool
+   */
+  public static $_log = FALSE;
+
+  /**
+   * Unique Address ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $id;
+
+  /**
+   * FK to Contact ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $contact_id;
+
+  /**
+   * Class constructor.
+   */
+  public function __construct() {
+    $this->__table = 'civicrm_contacthistory_address';
+    parent::__construct();
+  }
+
+  /**
+   * Returns localized title of this entity.
+   *
+   * @param bool $plural
+   *   Whether to return the plural version of the title.
+   */
+  public static function getEntityTitle($plural = FALSE) {
+    return $plural ? E::ts('Contacthistory Addresses') : E::ts('Contacthistory Address');
+  }
+
+  /**
+   * Returns all the column names of this table
+   *
+   * @return array
+   */
+  public static function &fields() {
+    if (!isset(Civi::$statics[__CLASS__]['fields'])) {
+      Civi::$statics[__CLASS__]['fields'] = [
+        'id' => [
+          'name' => 'id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('ID'),
+          'description' => E::ts('Unique Address ID'),
+          'required' => TRUE,
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_address.id',
+          'table_name' => 'civicrm_contacthistory_address',
+          'entity' => 'ContacthistoryAddress',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryAddress',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Number',
+          ],
+          'readonly' => TRUE,
+          'add' => NULL,
+        ],
+        'contact_id' => [
+          'name' => 'contact_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Contact ID'),
+          'description' => E::ts('FK to Contact ID'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_address.contact_id',
+          'table_name' => 'civicrm_contacthistory_address',
+          'entity' => 'ContacthistoryAddress',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryAddress',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'EntityRef',
+            'label' => E::ts('Contact'),
+          ],
+          'add' => NULL,
+        ],
+      ];
+    }
+    return Civi::$statics[__CLASS__]['fields'];
+  }
+
+  /**
+   * Return a mapping from field-name to the corresponding key (as used in fields()).
+   *
+   * @return array
+   *   Array(string $name => string $uniqueName).
+   */
+  public static function &fieldKeys() {
+    if (!isset(Civi::$statics[__CLASS__]['fieldKeys'])) {
+      Civi::$statics[__CLASS__]['fieldKeys'] = array_flip(CRM_Utils_Array::collect('name', self::fields()));
+    }
+    return Civi::$statics[__CLASS__]['fieldKeys'];
+  }
+
+  /**
+   * Returns the names of this table
+   *
+   * @return string
+   */
+  public static function getTableName() {
+    return self::$_tableName;
+  }
+
+  /**
+   * Returns if this table needs to be logged
+   *
+   * @return bool
+   */
+  public function getLog() {
+    return self::$_log;
+  }
+
+  /**
+   * Returns the list of fields that can be imported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &import($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getImports(__CLASS__, 'contacthistory_address', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of fields that can be exported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &export($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getExports(__CLASS__, 'contacthistory_address', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of indices
+   *
+   * @param bool $localize
+   *
+   * @return array
+   */
+  public static function indices($localize = TRUE) {
+    $indices = [];
+    return ($localize && !empty($indices)) ? CRM_Core_DAO_AllCoreTables::multilingualize(__CLASS__, $indices) : $indices;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/DAO/ContacthistoryEmail.php---
+<?php
+
+/**
+ * @package CRM
+ * @copyright CiviCRM LLC https://civicrm.org/licensing
+ *
+ * Generated from com.moellman.addresshistory/xml/schema/CRM/Contacthistory/ContacthistoryEmail.xml
+ * DO NOT EDIT.  Generated by CRM_Core_CodeGen
+ * (GenCodeChecksum:e8c1234567890abcdef)
+ */
+
+/**
+ * Database access object for the ContacthistoryEmail entity.
+ */
+class CRM_Contacthistory_DAO_ContacthistoryEmail extends CRM_Core_DAO {
+  const EXT = E::LONG_NAME;
+  const TABLE_ADDED = '';
+
+  /**
+   * Static instance to hold the table name.
+   *
+   * @var string
+   */
+  public static $_tableName = 'civicrm_contacthistory_email';
+
+  /**
+   * Should CiviCRM log any modifications to this table in the civicrm_log table.
+   *
+   * @var bool
+   */
+  public static $_log = FALSE;
+
+  /**
+   * Unique Email ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $id;
+
+  /**
+   * FK to Contact ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $contact_id;
+
+  /**
+   * Class constructor.
+   */
+  public function __construct() {
+    $this->__table = 'civicrm_contacthistory_email';
+    parent::__construct();
+  }
+
+  /**
+   * Returns localized title of this entity.
+   *
+   * @param bool $plural
+   *   Whether to return the plural version of the title.
+   */
+  public static function getEntityTitle($plural = FALSE) {
+    return $plural ? E::ts('Contacthistory Emails') : E::ts('Contacthistory Email');
+  }
+
+  /**
+   * Returns all the column names of this table
+   *
+   * @return array
+   */
+  public static function &fields() {
+    if (!isset(Civi::$statics[__CLASS__]['fields'])) {
+      Civi::$statics[__CLASS__]['fields'] = [
+        'id' => [
+          'name' => 'id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('ID'),
+          'description' => E::ts('Unique Email ID'),
+          'required' => TRUE,
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_email.id',
+          'table_name' => 'civicrm_contacthistory_email',
+          'entity' => 'ContacthistoryEmail',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryEmail',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Number',
+          ],
+          'readonly' => TRUE,
+          'add' => NULL,
+        ],
+        'contact_id' => [
+          'name' => 'contact_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Contact ID'),
+          'description' => E::ts('FK to Contact ID'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_email.contact_id',
+          'table_name' => 'civicrm_contacthistory_email',
+          'entity' => 'ContacthistoryEmail',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryEmail',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'EntityRef',
+            'label' => E::ts('Contact'),
+          ],
+          'add' => NULL,
+        ],
+      ];
+    }
+    return Civi::$statics[__CLASS__]['fields'];
+  }
+
+  /**
+   * Return a mapping from field-name to the corresponding key (as used in fields()).
+   *
+   * @return array
+   *   Array(string $name => string $uniqueName).
+   */
+  public static function &fieldKeys() {
+    if (!isset(Civi::$statics[__CLASS__]['fieldKeys'])) {
+      Civi::$statics[__CLASS__]['fieldKeys'] = array_flip(CRM_Utils_Array::collect('name', self::fields()));
+    }
+    return Civi::$statics[__CLASS__]['fieldKeys'];
+  }
+
+  /**
+   * Returns the names of this table
+   *
+   * @return string
+   */
+  public static function getTableName() {
+    return self::$_tableName;
+  }
+
+  /**
+   * Returns if this table needs to be logged
+   *
+   * @return bool
+   */
+  public function getLog() {
+    return self::$_log;
+  }
+
+  /**
+   * Returns the list of fields that can be imported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &import($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getImports(__CLASS__, 'contacthistory_email', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of fields that can be exported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &export($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getExports(__CLASS__, 'contacthistory_email', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of indices
+   *
+   * @param bool $localize
+   *
+   * @return array
+   */
+  public static function indices($localize = TRUE) {
+    $indices = [];
+    return ($localize && !empty($indices)) ? CRM_Core_DAO_AllCoreTables::multilingualize(__CLASS__, $indices) : $indices;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/DAO/ContacthistoryPhone.php---
+<?php
+
+/**
+ * @package CRM
+ * @copyright CiviCRM LLC https://civicrm.org/licensing
+ *
+ * Generated from com.moellman.addresshistory/xml/schema/CRM/Contacthistory/ContacthistoryPhone.xml
+ * DO NOT EDIT.  Generated by CRM_Core_CodeGen
+ * (GenCodeChecksum:e8c1234567890abcdef)
+ */
+
+/**
+ * Database access object for the ContacthistoryPhone entity.
+ */
+class CRM_Contacthistory_DAO_ContacthistoryPhone extends CRM_Core_DAO {
+  const EXT = E::LONG_NAME;
+  const TABLE_ADDED = '';
+
+  /**
+   * Static instance to hold the table name.
+   *
+   * @var string
+   */
+  public static $_tableName = 'civicrm_contacthistory_phone';
+
+  /**
+   * Should CiviCRM log any modifications to this table in the civicrm_log table.
+   *
+   * @var bool
+   */
+  public static $_log = FALSE;
+
+  /**
+   * Unique Phone ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $id;
+
+  /**
+   * FK to Contact ID
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $contact_id;
+
+  /**
+   * Which Location does this phone belong to.
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $location_type_id;
+
+  /**
+   * Is this the primary phone for this contact and location.
+   *
+   * @var bool|string
+   *   (SQL type: tinyint)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $is_primary;
+
+  /**
+   * Is this the billing phone for this contact and location.
+   *
+   * @var bool|string
+   *   (SQL type: tinyint)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $is_billing;
+
+  /**
+   * Which Mobile Provider does this phone belong to.
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $mobile_provider_id;
+
+  /**
+   * Complete phone number.
+   *
+   * @var string|null
+   *   (SQL type: varchar(32))
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $phone;
+
+  /**
+   * Optional extension for a phone number.
+   *
+   * @var string|null
+   *   (SQL type: varchar(16))
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $phone_ext;
+
+  /**
+   * Phone Phone number stripped of all whitespace, letters, and punctuation.
+   *
+   * @var string|null
+   *   (SQL type: varchar(32))
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $phone_numeric;
+
+  /**
+   * Which type of phone does this number belongs.
+   *
+   * @var int|string|null
+   *   (SQL type: int unsigned)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $phone_type_id;
+
+  /**
+   * When this history record was created
+   *
+   * @var string
+   *   (SQL type: timestamp)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $start_date;
+
+  /**
+   * When this history record was last modified
+   *
+   * @var string
+   *   (SQL type: timestamp)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $modified_date;
+
+  /**
+   * When this phone was deleted/replaced
+   *
+   * @var string|null
+   *   (SQL type: timestamp)
+   *   Note that values will be retrieved from the database as a string.
+   */
+  public $end_date;
+
+  /**
+   * Class constructor.
+   */
+  public function __construct() {
+    $this->__table = 'civicrm_contacthistory_phone';
+    parent::__construct();
+  }
+
+  /**
+   * Returns localized title of this entity.
+   *
+   * @param bool $plural
+   *   Whether to return the plural version of the title.
+   */
+  public static function getEntityTitle($plural = FALSE) {
+    return $plural ? E::ts('Contacthistory Phones') : E::ts('Contacthistory Phone');
+  }
+
+  /**
+   * Returns all the column names of this table
+   *
+   * @return array
+   */
+  public static function &fields() {
+    if (!isset(Civi::$statics[__CLASS__]['fields'])) {
+      Civi::$statics[__CLASS__]['fields'] = [
+        'id' => [
+          'name' => 'id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('ID'),
+          'description' => E::ts('Unique Phone ID'),
+          'required' => TRUE,
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.id',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Number',
+          ],
+          'readonly' => TRUE,
+          'add' => NULL,
+        ],
+        'contact_id' => [
+          'name' => 'contact_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Contact ID'),
+          'description' => E::ts('FK to Contact ID'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.contact_id',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'EntityRef',
+            'label' => E::ts('Contact'),
+          ],
+          'add' => NULL,
+        ],
+        'location_type_id' => [
+          'name' => 'location_type_id',
+          'type' => CRM_Utils_Type::T_INT,
+          'title' => E::ts('Location Type ID'),
+          'description' => E::ts('Which Location does this phone belong to.'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => FALSE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.location_type_id',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Select',
+            'label' => E::ts('Location Type'),
+          ],
+          'add' => NULL,
+        ],
+        'phone' => [
+          'name' => 'phone',
+          'type' => CRM_Utils_Type::T_STRING,
+          'title' => E::ts('Phone'),
+          'description' => E::ts('Complete phone number.'),
+          'maxlength' => 32,
+          'size' => CRM_Utils_Type::MEDIUM,
+          'usage' => [
+            'import' => TRUE,
+            'export' => TRUE,
+            'duplicate_matching' => TRUE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.phone',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Text',
+          ],
+          'add' => NULL,
+        ],
+        'start_date' => [
+          'name' => 'start_date',
+          'type' => CRM_Utils_Type::T_TIMESTAMP,
+          'title' => E::ts('Start Date'),
+          'description' => E::ts('When this history record was created'),
+          'required' => TRUE,
+          'usage' => [
+            'import' => FALSE,
+            'export' => TRUE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.start_date',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Select Date',
+          ],
+          'add' => NULL,
+        ],
+        'end_date' => [
+          'name' => 'end_date',
+          'type' => CRM_Utils_Type::T_TIMESTAMP,
+          'title' => E::ts('End Date'),
+          'description' => E::ts('When this phone was deleted/replaced'),
+          'usage' => [
+            'import' => FALSE,
+            'export' => TRUE,
+            'duplicate_matching' => FALSE,
+            'token' => FALSE,
+          ],
+          'where' => 'civicrm_contacthistory_phone.end_date',
+          'table_name' => 'civicrm_contacthistory_phone',
+          'entity' => 'ContacthistoryPhone',
+          'bao' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+          'localizable' => 0,
+          'html' => [
+            'type' => 'Select Date',
+          ],
+          'add' => NULL,
+        ],
+      ];
+    }
+    return Civi::$statics[__CLASS__]['fields'];
+  }
+
+  /**
+   * Return a mapping from field-name to the corresponding key (as used in fields()).
+   *
+   * @return array
+   *   Array(string $name => string $uniqueName).
+   */
+  public static function &fieldKeys() {
+    if (!isset(Civi::$statics[__CLASS__]['fieldKeys'])) {
+      Civi::$statics[__CLASS__]['fieldKeys'] = array_flip(CRM_Utils_Array::collect('name', self::fields()));
+    }
+    return Civi::$statics[__CLASS__]['fieldKeys'];
+  }
+
+  /**
+   * Returns the names of this table
+   *
+   * @return string
+   */
+  public static function getTableName() {
+    return self::$_tableName;
+  }
+
+  /**
+   * Returns if this table needs to be logged
+   *
+   * @return bool
+   */
+  public function getLog() {
+    return self::$_log;
+  }
+
+  /**
+   * Returns the list of fields that can be imported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &import($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getImports(__CLASS__, 'contacthistory_phone', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of fields that can be exported
+   *
+   * @param bool $prefix
+   *
+   * @return array
+   */
+  public static function &export($prefix = FALSE) {
+    $r = CRM_Core_DAO_AllCoreTables::getExports(__CLASS__, 'contacthistory_phone', $prefix, []);
+    return $r;
+  }
+
+  /**
+   * Returns the list of indices
+   *
+   * @param bool $localize
+   *
+   * @return array
+   */
+  public static function indices($localize = TRUE) {
+    $indices = [];
+    return ($localize && !empty($indices)) ? CRM_Core_DAO_AllCoreTables::multilingualize(__CLASS__, $indices) : $indices;
+  }
+
+}
+
+---FILE: CRM/Contacthistory/Form/Delete.php---
+<?php
+use CRM_Contacthistory_ExtensionUtil as E;
+
+class CRM_Contacthistory_Form_Delete extends CRM_Core_Form {
+
+  protected $_id;
+  protected $_type;
+  protected $_contactId;
+
+  public function preProcess() {
+    $this->_id = CRM_Utils_Request::retrieve('id', 'Positive', $this, TRUE);
+    $this->_type = CRM_Utils_Request::retrieve('type', 'String', $this, TRUE);
+    $this->_contactId = CRM_Utils_Request::retrieve('cid', 'Positive', $this, TRUE);
+
+    // Check permission
+    if (!CRM_Core_Permission::check('administer CiviCRM') && 
+        !CRM_Core_Permission::check('manage contact history')) {
+      CRM_Core_Error::statusBounce(E::ts('You do not have permission to delete contact history.'));
+    }
+
+    $this->setPageTitle(E::ts('Delete Contact History Record'));
+  }
+
+  public function buildQuickForm() {
+    $this->addButtons([
+      [
+        'type' => 'upload',
+        'name' => E::ts('Delete'),
+        'isDefault' => TRUE,
+      ],
+      [
+        'type' => 'cancel',
+        'name' => E::ts('Cancel'),
+      ],
+    ]);
+
+    $this->assign('type', $this->_type);
+    $this->assign('contactId', $this->_contactId);
+
+    parent::buildQuickForm();
+  }
+
+  public function postProcess() {
+    $className = 'CRM_Contacthistory_BAO_Contacthistory' . ucfirst($this->_type);
+    if (class_exists($className)) {
+      $bao = new $className();
+      $bao->id = $this->_id;
+      if ($bao->find(TRUE)) {
+        $bao->delete();
+      }
+    }
+
+    CRM_Core_Session::setStatus(E::ts('Contact history record has been deleted.'), E::ts('Deleted'), 'success');
+    
+    $url = CRM_Utils_System::url('civicrm/contact/view/contacthistory', [
+      'cid' => $this->_contactId,
+      'reset' => 1,
+    ]);
+    CRM_Utils_System::redirect($url);
+  }
+
+}
+
+---FILE: templates/CRM/Contacthistory/Form/Delete.tpl---
+<div class="crm-block crm-form-block">
+  <div class="messages help">
+    <p>{ts}Are you sure you want to delete this contact history record? This action cannot be undone.{/ts}</p>
+  </div>
+  
+  <div class="crm-submit-buttons">
+    {include file="CRM/common/formButtons.tpl" location="bottom"}
+  </div>
+</div>
+
+---FILE: templates/CRM/Contacthistory/Form/Edit.tpl---
+<div class="crm-block crm-form-block">
+  <div class="crm-section">
+    <div class="content">
+      {* Form elements will be rendered here based on the type *}
+      {foreach from=$form item=element}
+        {if $element.html}
+          <div class="crm-section">
+            <div class="label">{$element.label}</div>
+            <div class="content">{$element.html}</div>
+          </div>
+        {/if}
+      {/foreach}
+    </div>
+  </div>
+  
+  <div class="crm-submit-buttons">
+    {include file="CRM/common/formButtons.tpl" location="bottom"}
+  </div>
+</div>
+
+---FILE: contacthistory.civix.php---
+<?php
+
+// AUTO-GENERATED FILE -- Civix may overwrite any changes made to this file
+
+/**
+ * The ExtensionUtil class provides small stubs for accessing resources of this
+ * extension.
+ */
+class CRM_Contacthistory_ExtensionUtil {
+  const SHORT_NAME = 'contacthistory';
+  const LONG_NAME = 'com.moellman.addresshistory';
+  const CLASS_PREFIX = 'CRM_Contacthistory';
+
+  /**
+   * Translate a string using the extension's domain.
+   *
+   * If the extension doesn't have a specific translation
+   * for the string, fallback to the default translations.
+   *
+   * @param string $text
+   *   Canonical message text (generally en_US).
+   * @param array $params
+   *   Parameters for ts().
+   * @return string
+   *   Translated text.
+   * @see ts
+   */
+  public static function ts($text, $params = []) {
+    if (!array_key_exists('domain', $params)) {
+      $params['domain'] = [self::LONG_NAME, NULL];
+    }
+    return ts($text, $params);
+  }
+
+  /**
+   * Get the URL of a resource file (in this extension).
+   *
+   * @param string|NULL $file
+   *   Ex: NULL.
+   *   Ex: 'css/foo.css'.
+   * @return string
+   *   Ex: 'http://example.org/sites/default/ext/org.example.foo'.
+   *   Ex: 'http://example.org/sites/default/ext/org.example.foo/css/foo.css'.
+   */
+  public static function url($file = NULL) {
+    if ($file === NULL) {
+      return rtrim(CRM_Core_Resources::singleton()->getUrl(self::LONG_NAME), '/');
+    }
+    return CRM_Core_Resources::singleton()->getUrl(self::LONG_NAME, $file);
+  }
+
+  /**
+   * Get the path of a resource file (in this extension).
+   *
+   * @param string|NULL $file
+   *   Ex: NULL.
+   *   Ex: 'css/foo.css'.
+   * @return string
+   *   Ex: '/var/www/example.org/sites/default/ext/org.example.foo'.
+   *   Ex: '/var/www/example.org/sites/default/ext/org.example.foo/css/foo.css'.
+   */
+  public static function path($file = NULL) {
+    return __DIR__ . ($file === NULL ? '' : (DIRECTORY_SEPARATOR . $file));
+  }
+
+  /**
+   * Get the name of a class within this extension.
+   *
+   * @param string $suffix
+   *   Ex: 'Page_HelloWorld' or 'Page\\HelloWorld'.
+   * @return string
+   *   Ex: 'CRM_Foo_Page_HelloWorld'.
+   */
+  public static function findClass($suffix) {
+    return self::CLASS_PREFIX . '_' . str_replace('\\', '_', $suffix);
+  }
+
+}
+
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * (Delegated) Implements hook_civicrm_config().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_config
+ */
+function _contacthistory_civix_civicrm_config(&$config = NULL) {
+  static $configured = FALSE;
+  if ($configured) {
+    return;
+  }
+  $configured = TRUE;
+
+  $template =& CRM_Core_Smarty::singleton();
+  $extRoot = dirname(__FILE__) . DIRECTORY_SEPARATOR;
+  $extDir = $extRoot . 'templates';
+
+  if (is_dir($extDir)) {
+    $template->addTemplateDir($extDir);
+  }
+
+  $include_path = $extRoot . PATH_SEPARATOR . get_include_path();
+  set_include_path($include_path);
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_install().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_install
+ */
+function _contacthistory_civix_civicrm_install() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    $upgrader->onInstall();
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_enable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_enable
+ */
+function _contacthistory_civix_civicrm_enable() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    if (is_callable([$upgrader, 'onEnable'])) {
+      $upgrader->onEnable();
+    }
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_disable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_disable
+ */
+function _contacthistory_civix_civicrm_disable() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    if (is_callable([$upgrader, 'onDisable'])) {
+      $upgrader->onDisable();
+    }
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_upgrade().
+ *
+ * @param $op string, the type of operation being performed; 'check' or 'enqueue'
+ * @param $queue CRM_Queue_Queue, (for 'enqueue') the modifiable list of pending up upgrade tasks
+ *
+ * @return mixed  based on op. for 'check', returns array(boolean) (TRUE if upgrades are pending)
+ *                for 'enqueue', returns void
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_upgrade
+ */
+function _contacthistory_civix_civicrm_upgrade($op, CRM_Queue_Queue $queue = NULL) {
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    return $upgrader->onUpgrade($op, $queue);
+  }
+}
+
+/**
+ * @return CRM_Contacthistory_Upgrader
+ */
+function _contacthistory_civix_upgrader() {
+  if (!file_exists(__DIR__ . '/CRM/Contacthistory/Upgrader.php')) {
+    return NULL;
+  }
+  else {
+    return CRM_Contacthistory_Upgrader::instance();
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_entityTypes().
+ *
+ * Find any *.entityType.php files, merge their content, and return.
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_entityTypes
+ */
+function _contacthistory_civix_civicrm_entityTypes(&$entityTypes) {
+  $entityTypes = array_merge($entityTypes, [
+    'CRM_Contacthistory_DAO_ContacthistoryAddress' => [
+      'name' => 'ContacthistoryAddress',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryAddress',
+      'table' => 'civicrm_contacthistory_address',
+    ],
+    'CRM_Contacthistory_DAO_ContacthistoryEmail' => [
+      'name' => 'ContacthistoryEmail',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryEmail',
+      'table' => 'civicrm_contacthistory_email',
+    ],
+    'CRM_Contacthistory_DAO_ContacthistoryPhone' => [
+      'name' => 'ContacthistoryPhone',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+      'table' => 'civicrm_contacthistory_phone',
+    ],
+  ]);
+}
+<?php
+
+// AUTO-GENERATED FILE -- Civix may overwrite any changes made to this file
+
+/**
+ * The ExtensionUtil class provides small stubs for accessing resources of this
+ * extension.
+ */
+class CRM_Contacthistory_ExtensionUtil {
+  const SHORT_NAME = 'contacthistory';
+  const LONG_NAME = 'com.moellman.addresshistory';
+  const CLASS_PREFIX = 'CRM_Contacthistory';
+
+  /**
+   * Translate a string using the extension's domain.
+   *
+   * If the extension doesn't have a specific translation
+   * for the string, fallback to the default translations.
+   *
+   * @param string $text
+   *   Canonical message text (generally en_US).
+   * @param array $params
+   *   Parameters for ts().
+   * @return string
+   *   Translated text.
+   * @see ts
+   */
+  public static function ts($text, $params = []) {
+    if (!array_key_exists('domain', $params)) {
+      $params['domain'] = [self::LONG_NAME, NULL];
+    }
+    return ts($text, $params);
+  }
+
+  /**
+   * Get the URL of a resource file (in this extension).
+   *
+   * @param string|NULL $file
+   *   Ex: NULL.
+   *   Ex: 'css/foo.css'.
+   * @return string
+   *   Ex: 'http://example.org/sites/default/ext/org.example.foo'.
+   *   Ex: 'http://example.org/sites/default/ext/org.example.foo/css/foo.css'.
+   */
+  public static function url($file = NULL) {
+    if ($file === NULL) {
+      return rtrim(CRM_Core_Resources::singleton()->getUrl(self::LONG_NAME), '/');
+    }
+    return CRM_Core_Resources::singleton()->getUrl(self::LONG_NAME, $file);
+  }
+
+  /**
+   * Get the path of a resource file (in this extension).
+   *
+   * @param string|NULL $file
+   *   Ex: NULL.
+   *   Ex: 'css/foo.css'.
+   * @return string
+   *   Ex: '/var/www/example.org/sites/default/ext/org.example.foo'.
+   *   Ex: '/var/www/example.org/sites/default/ext/org.example.foo/css/foo.css'.
+   */
+  public static function path($file = NULL) {
+    return __DIR__ . ($file === NULL ? '' : (DIRECTORY_SEPARATOR . $file));
+  }
+
+  /**
+   * Get the name of a class within this extension.
+   *
+   * @param string $suffix
+   *   Ex: 'Page_HelloWorld' or 'Page\\HelloWorld'.
+   * @return string
+   *   Ex: 'CRM_Foo_Page_HelloWorld'.
+   */
+  public static function findClass($suffix) {
+    return self::CLASS_PREFIX . '_' . str_replace('\\', '_', $suffix);
+  }
+
+}
+
+use CRM_Contacthistory_ExtensionUtil as E;
+
+/**
+ * (Delegated) Implements hook_civicrm_config().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_config
+ */
+function _contacthistory_civix_civicrm_config(&$config = NULL) {
+  static $configured = FALSE;
+  if ($configured) {
+    return;
+  }
+  $configured = TRUE;
+
+  $template =& CRM_Core_Smarty::singleton();
+  $extRoot = dirname(__FILE__) . DIRECTORY_SEPARATOR;
+  $extDir = $extRoot . 'templates';
+
+  if (is_dir($extDir)) {
+    $template->addTemplateDir($extDir);
+  }
+
+  $include_path = $extRoot . PATH_SEPARATOR . get_include_path();
+  set_include_path($include_path);
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_install().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_install
+ */
+function _contacthistory_civix_civicrm_install() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    $upgrader->onInstall();
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_enable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_enable
+ */
+function _contacthistory_civix_civicrm_enable() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    if (is_callable([$upgrader, 'onEnable'])) {
+      $upgrader->onEnable();
+    }
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_disable().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_disable
+ */
+function _contacthistory_civix_civicrm_disable() {
+  _contacthistory_civix_civicrm_config();
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    if (is_callable([$upgrader, 'onDisable'])) {
+      $upgrader->onDisable();
+    }
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_upgrade().
+ *
+ * @param $op string, the type of operation being performed; 'check' or 'enqueue'
+ * @param $queue CRM_Queue_Queue, (for 'enqueue') the modifiable list of pending up upgrade tasks
+ *
+ * @return mixed  based on op. for 'check', returns array(boolean) (TRUE if upgrades are pending)
+ *                for 'enqueue', returns void
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_upgrade
+ */
+function _contacthistory_civix_civicrm_upgrade($op, CRM_Queue_Queue $queue = NULL) {
+  if ($upgrader = _contacthistory_civix_upgrader()) {
+    return $upgrader->onUpgrade($op, $queue);
+  }
+}
+
+/**
+ * @return CRM_Contacthistory_Upgrader
+ */
+function _contacthistory_civix_upgrader() {
+  if (!file_exists(__DIR__ . '/CRM/Contacthistory/Upgrader.php')) {
+    return NULL;
+  }
+  else {
+    return CRM_Contacthistory_Upgrader::instance();
+  }
+}
+
+/**
+ * (Delegated) Implements hook_civicrm_entityTypes().
+ *
+ * Find any *.entityType.php files, merge their content, and return.
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_entityTypes
+ */
+function _contacthistory_civix_civicrm_entityTypes(&$entityTypes) {
+  $entityTypes = array_merge($entityTypes, [
+    'CRM_Contacthistory_DAO_ContacthistoryAddress' => [
+      'name' => 'ContacthistoryAddress',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryAddress',
+      'table' => 'civicrm_contacthistory_address',
+    ],
+    'CRM_Contacthistory_DAO_ContacthistoryEmail' => [
+      'name' => 'ContacthistoryEmail',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryEmail',
+      'table' => 'civicrm_contacthistory_email',
+    ],
+    'CRM_Contacthistory_DAO_ContacthistoryPhone' => [
+      'name' => 'ContacthistoryPhone',
+      'class' => 'CRM_Contacthistory_DAO_ContacthistoryPhone',
+      'table' => 'civicrm_contacthistory_phone',
+    ],
+  ]);
+}
+
+---FILE: README.md---
+# Contact History Extension
+
+This CiviCRM extension tracks historical changes to contact addresses, emails, and phone numbers using database triggers.
+
+## Features
+
+- **Automatic History Tracking**: Uses database triggers to automatically capture changes when addresses, emails, or phone numbers are added, updated, or deleted
+- **Dedicated History Tables**: Creates separate history tables that mirror the original structure but without foreign key constraints
+- **Contact History Tab**: Adds a new tab to contact view showing complete history for addresses, emails, and phones
+- **Permission-Based Management**: Edit and delete functionality restricted to users with appropriate permissions
+- **API Support**: Full API3 and API4 compatibility for integration with other systems
+- **SearchKit Compatible**: History data can be used in SearchKit searches and displays
+
+## Requirements
+
+- CiviCRM 6.0 or higher
+- PHP 8.2, 8.3, or 8.4
+- MySQL/MariaDB with trigger support
+
+## Installation
+
+1. Download the extension to your CiviCRM extensions directory
+2. Enable the extension through Administer > System Settings > Extensions
+3. History tables will be created and populated with current data automatically
+
+## Usage
+
+### Viewing History
+
+1. Navigate to any contact record
+2. Click the "Contact History" tab
+3. View address, email, and phone history with start/end dates
+
+### Managing History
+
+Users with "Manage Contact History" permission can:
+- Edit historical records
+- Delete historical records
+- View complete change timeline
+
+### API Access
+
+The extension provides API3 and API4 entities:
+- `ContacthistoryAddress`
+- `ContacthistoryEmail` 
+- `ContacthistoryPhone`
+
+Example API4 usage:
+```php
+$history = \Civi\Api4\ContacthistoryAddress::get()
+  ->addWhere('contact_id', '=', 123)
+  ->addOrderBy('start_date', 'DESC')
+  ->execute();
+```
+
+## Permissions
+
+- **View Contact History**: Included with standard contact view permissions
+- **Manage Contact History**: Required to edit/delete history records (defaults to admin only)
+
+## Database Structure
+
+The extension creates three history tables:
+- `civicrm_contacthistory_address`
+- `civicrm_contacthistory_email`
+- `civicrm_contacthistory_phone`
+
+Each table includes:
+- All original table fields (without foreign keys)
+- `start_date`: When the record was created
+- `modified_date`: When the record was last modified  
+- `end_date`: When the record was deleted/replaced
+
+## Technical Notes
+
+- Database triggers are created using PHP code in the Upgrader class to avoid CiviCRM SQL file parsing issues with DELIMITER statements
+- History tracking is implemented at the database level for reliability and performance
+- The extension properly handles enable/disable cycles and clean uninstallation
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Triggers not working**: Ensure your database user has CREATE TRIGGER privileges
+2. **Missing history tab**: Clear CiviCRM caches and check permissions
+3. **Edit/delete buttons not working**: Verify "Manage Contact History" permission is assigned
+
+### Debugging
+
+- Check CiviCRM logs for SQL errors during installation
+- Verify triggers exist using `SHOW TRIGGERS` in MySQL
+- Confirm history tables contain expected data
+
+## Support
+
+Report issues and contribute at: https://github.com/kenmoellman/civicrm-contacthistory
+
+## License
+
+This extension is licensed under AGPL-3.0.

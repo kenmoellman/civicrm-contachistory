@@ -7,6 +7,23 @@ use CRM_Contacthistory_ExtensionUtil as E;
 class CRM_Contacthistory_Upgrader extends CRM_Extension_Upgrader_Base {
 
   /**
+   * @var CRM_Contacthistory_Upgrader
+   */
+  private static $_instance = NULL;
+
+  /**
+   * Get singleton instance.
+   *
+   * @return CRM_Contacthistory_Upgrader
+   */
+  public static function instance() {
+    if (!self::$_instance) {
+      self::$_instance = new self();
+    }
+    return self::$_instance;
+  }
+
+  /**
    * Install the extension.
    */
   public function install(): void {
